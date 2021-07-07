@@ -1,0 +1,10 @@
+matplotlib
+nltk
+numpy
+Pillow
+argparse
+Cython
+torch
+torchvision
+torchtext
+efficientnet_pytorch
