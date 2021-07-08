@@ -33,7 +33,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--image_dir', type=str, default='./dataset/train2017/',
                         help='directory for train images')
-    parser.add_argument('--output_dir', type=str, default='./dataset/resized2017/',
+    parser.add_argument('--output_dir', type=str, default='./dataset/resized_train2017/',
                         help='directory for saving resized images')
     parser.add_argument('--image_size', type=int, default=256,
                         help='size for image after processing')
