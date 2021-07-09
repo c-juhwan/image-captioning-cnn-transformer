@@ -34,7 +34,10 @@ def main(args):
         vocab = pickle.load(f)
     
     # Build data loader
-    data_loader = get_loader(args.image_dir, args.caption_path, vocab, 
+    data_loader_train = get_loader(args.image_dir_train, args.caption_path_train, vocab, 
+                             transform, args.batch_size,
+                             shuffle=True, num_workers=args.num_workers) 
+    data_loader_val = get_loader(args.image_dir_val, args.caption_path_val, vocab, 
                              transform, args.batch_size,
                              shuffle=True, num_workers=args.num_workers) 
 
@@ -53,12 +56,13 @@ def main(args):
     print(decoder)
     
     # Train the models
-    total_step = len(data_loader)
     for epoch in tqdm(range(args.num_epochs)):
-        epoch_loss = 0
         encoder.train()
         decoder.train()
-        for batch_idx, batch in enumerate(tqdm(data_loader, total=total_step)):
+
+        total_step = len(data_loader_train)
+        epoch_loss = 0
+        for batch_idx, batch in enumerate(tqdm(data_loader_train, total=total_step)):
             
             # Set mini-batch dataset
             images = batch[0].to(device)
@@ -85,8 +89,20 @@ def main(args):
                     args.model_path, 'encoder-{}-{}.ckpt'.format(epoch+1, batch_idx+1)))
 
             # Validation after each epoch
-            encoder.test()
-            decoder.test()
+            encoder.eval()
+            decoder.eval()
+
+            total_step = len(data_loader_train)
+            epoch_loss = 0
+            for batch_idx, batch in enumerate(tqdm(data_loader_train, total=total_step)):
+                images = batch[0].to(device)
+                captions = batch[1].to(device)
+
+                with torch.no_grad():
+                    features = encoder(images)
+                    predictions = decoder(features, captions)
+                
+                loss = criterion(predictions, captions)
 
         print('Epoch [{}/{}] Finished, Average Loss: {:.4f}'
                       .format(epoch, args.num_epochs, epoch_loss/total_step))
@@ -96,9 +112,11 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--model_path', type=str, default='models/' , help='path for saving trained models')
     parser.add_argument('--crop_size', type=int, default=224 , help='size for randomly cropping images')
-    parser.add_argument('--vocab_path', type=str, default='dataset/vocab.pkl', help='path for vocabulary wrapper')
-    parser.add_argument('--image_dir', type=str, default='dataset/resized2017', help='directory for resized images')
-    parser.add_argument('--caption_path', type=str, default='dataset/annotations/captions_train2017.json', help='path for train annotation json file')
+    parser.add_argument('--vocab_path', type=str, default='dataset/vocab_train2017.pkl', help='path for vocabulary wrapper')
+    parser.add_argument('--image_dir_train', type=str, default='dataset/resized_train2017', help='directory for resized train images')
+    parser.add_argument('--image_dir_val', type=str, default='dataset/resized_val2017', help='directory for resized validation images')
+    parser.add_argument('--caption_path_train', type=str, default='dataset/annotations/captions_train2017.json', help='path for train annotation json file')
+    parser.add_argument('--caption_path_val', type=str, default='dataset/annotations/captions_val2017.json', help='path for train annotation json file')
     parser.add_argument('--log_step', type=int , default=1000, help='step size for prining log info')
     parser.add_argument('--save_step', type=int , default=1000, help='step size for saving trained models')
     
@@ -106,7 +124,7 @@ if __name__ == '__main__':
     parser.add_argument('--embed_size', type=int , default=512, help='dimension of word embedding vectors')
     
     parser.add_argument('--num_epochs', type=int, default=5)
-    parser.add_argument('--batch_size', type=int, default=128)
+    parser.add_argument('--batch_size', type=int, default=32)
     parser.add_argument('--num_workers', type=int, default=2)
     parser.add_argument('--learning_rate', type=float, default=0.001)
     args = parser.parse_args()

@@ -7,17 +7,14 @@ class Encoder(nn.Module):
     def __init__(self, embed_size):
         """Load pretrained EfficientNet as feature extractor."""
         super(Encoder, self).__init__()
-        efficientnet = EfficientNet.from_pretrained('efficientnet-b7')
-        modules = list(efficientnet.children())[:-3]
-        self.feature_extractor = nn.Sequential(*modules)
-        feature_size = efficientnet._fc.in_features
+        self.efficientnet = EfficientNet.from_pretrained('efficientnet-b7')
+        feature_size = self.efficientnet._fc.in_features
         self.linear = nn.Linear(feature_size, embed_size)
 
     def forward(self, images):
         """Extract feature vectors from input images."""
         with torch.no_grad():
-            features = self.feature_extractor(images)
-        print(features.shape())
+            features = self.efficientnet.extract_features(images)
         features = self.linear(features)
 
         return features
