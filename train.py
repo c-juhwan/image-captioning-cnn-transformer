@@ -14,6 +14,59 @@ from torchtext.vocab import Vocab
 # Device configuration
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
+
+def train_model(args, epoch, model, data_loader, optimizer, loss_fn, device):
+    model = model.train()
+
+    total_step = len(data_loader)
+    epoch_loss = 0
+    for batch_idx, batch in enumerate(tqdm(data_loader, total=total_step)):
+            
+        # Set mini-batch dataset
+        images = batch[0].to(device)
+        captions = batch[1].to(device)
+
+        model.zero_grad()
+            
+        # Forward, backward and optimize
+        outputs = model(images, captions) 
+
+        outputs = outputs.transpose(1, 2)  
+
+        loss = loss_fn(outputs, captions)
+            
+        loss.backward()
+        optimizer.step()
+
+        epoch_loss = epoch_loss + loss.item()
+            
+
+        if batch_idx % args.log_step == 0:
+            print('Epoch [{}/{}], Step [{}/{}], Loss: {:.4f}, Perplexity: {:5.4f}'
+                    .format(epoch, args.num_epochs, batch_idx, total_step, loss.item(), np.exp(loss.item()))) 
+
+        # Save the model checkpoints
+        if (batch_idx+1) % args.save_step == 0:
+            torch.save(model.state_dict(), os.path.join(args.model_path, 'model-{}-{}.pt'.format(epoch+1, batch_idx+1)))
+
+def validation_model(args, epoch, model, data_loader, optimizer, loss_fn, device):
+    model.eval()
+
+    total_step = len(data_loader)
+    epoch_loss = 0
+    for batch_idx, batch in enumerate(tqdm(data_loader, total=total_step)):
+        images = batch[0].to(device)
+        captions = batch[1].to(device)
+
+        with torch.no_grad():
+            predictions = model(images, captions)
+                
+        loss = loss_fn(predictions, captions)
+
+        print('Epoch [{}/{}] Finished, Average Loss: {:.4f}'
+                      .format(epoch, args.num_epochs, epoch_loss/total_step))
+
+
 def main(args):
     # Create model directory
     if not os.path.exists(args.model_path):
@@ -21,11 +74,11 @@ def main(args):
     
     # Image preprocessing, normalization for the pretrained resnet
     transform = transforms.Compose([ 
-        transforms.Resize((256, 256)),
+        transforms.Resize((args.resize_size, args.resize_size)),
         transforms.RandomCrop(args.crop_size), # crop 224x224 from 256x256 image
-        transforms.RandomHorizontalFlip(), 
+        transforms.RandomHorizontalFlip(),
         transforms.RandomVerticalFlip(),
-        transforms.ToTensor(), 
+        transforms.ToTensor(),
         transforms.Normalize((0.485, 0.456, 0.406),
                              (0.229, 0.224, 0.225))])
     
@@ -43,67 +96,31 @@ def main(args):
                              shuffle=True, num_workers=args.num_workers) 
 
     # Build the models
-    model = CaptioningModel(args.batch_size, args.embed_size, len(vocabulary))
+    model = CaptioningModel(args.batch_size, args.embed_size, len(vocabulary)).to(device)
     
     # Loss and optimizer
-    criterion = nn.CrossEntropyLoss()
+    loss_fn = nn.CrossEntropyLoss()
     # You don't need to train efficientnet
-    params = list(list(model.linear.parameters() + model.embed.parameters() + model.transformer.parameters()))
+    params = list(list(model.linear_feature.parameters()) + list(model.embed.parameters()) + list(model.transformer.parameters()) + list(model.linear_out.parameters()))
     optimizer = torch.optim.Adam(params, lr=args.learning_rate)
     
-    # Train the models
+    # Epoch the models
     for epoch in tqdm(range(args.num_epochs)):
-        model.train()
+        # Train
+        train_model(args, epoch, model, data_loader_train, optimizer, loss_fn, device)
 
-        total_step = len(data_loader_train)
-        epoch_loss = 0
-        for batch_idx, batch in enumerate(tqdm(data_loader_train, total=total_step)):
-            
-            # Set mini-batch dataset
-            images = batch[0].to(device)
-            captions = batch[1].to(device)
-
-            model.zero_grad()
-            
-            # Forward, backward and optimize
-            outputs = model(images, captions)
-            loss = criterion(outputs, captions)
-            
-            loss.backward()
-            optimizer.step()
-
-            epoch_loss = epoch_loss + loss.item()
-                
-            # Save the model checkpoints
-            if (batch_idx+1) % args.save_step == 0:
-                torch.save(model.state_dict(), os.path.join(
-                    args.model_path, 'model-{}-{}.pt'.format(epoch+1, batch_idx+1)))
-
-            # Validation after each epoch
-            model.eval()
-
-            total_step = len(data_loader_train)
-            epoch_loss = 0
-            for batch_idx, batch in enumerate(tqdm(data_loader_train, total=total_step)):
-                images = batch[0].to(device)
-                captions = batch[1].to(device)
-
-                with torch.no_grad():
-                    predictions = model(images, captions)
-                
-                loss = criterion(predictions, captions)
-
-        print('Epoch [{}/{}] Finished, Average Loss: {:.4f}'
-                      .format(epoch, args.num_epochs, epoch_loss/total_step))
+        # Validation after each epoch
+        validation_model(args, epoch, model, data_loader_val, optimizer, loss_fn, device)
 
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--model_path', type=str, default='models/' , help='path for saving trained models')
+    parser.add_argument('--resize_size', type=int, default=256 , help='size for resizing images')
     parser.add_argument('--crop_size', type=int, default=224 , help='size for randomly cropping images')
     parser.add_argument('--vocab_path', type=str, default='dataset/vocab.pkl', help='path for vocabulary wrapper')
-    parser.add_argument('--image_dir_train', type=str, default='dataset/resized_train2017', help='directory for resized train images')
-    parser.add_argument('--image_dir_val', type=str, default='dataset/resized_val2017', help='directory for resized validation images')
+    parser.add_argument('--image_dir_train', type=str, default='dataset/train2017', help='directory for resized train images')
+    parser.add_argument('--image_dir_val', type=str, default='dataset/val2017', help='directory for resized validation images')
     parser.add_argument('--caption_path_train', type=str, default='dataset/annotations/captions_train2017.json', help='path for train annotation json file')
     parser.add_argument('--caption_path_val', type=str, default='dataset/annotations/captions_val2017.json', help='path for train annotation json file')
     parser.add_argument('--log_step', type=int , default=1000, help='step size for prining log info')

@@ -31,7 +31,6 @@ def build_vocab(ordered_dict, threshold):
     vocabulary.insert_token('<unk>', 3)
 
     vocabulary.set_default_index(vocabulary['<unk>'])
-    print(type(vocabulary))
 
     return vocabulary
 
@@ -44,9 +43,9 @@ def main(args):
     vocabulary = build_vocab(ordered_dict, threshold)
 
     with open(vocab_path, 'wb') as f:
-        pickle.dump(vocab, f)
+        pickle.dump(vocabulary, f)
 
-    print("Total vocabulary size: {}".format(len(vocab)))
+    print("Total vocabulary size: {}".format(len(vocabulary)))
     print("Saved the vocabulary wrapper to '{}'".format(vocab_path))
 
 if __name__ == '__main__':
