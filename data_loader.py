@@ -12,7 +12,7 @@ from torchtext.data import get_tokenizer
 
 class CocoDataset(data.Dataset):
     """COCO Custom Dataset compatible with torch.utils.data.DataLoader."""
-    def __init__(self, root, json, vocabulary, transform=None):
+    def __init__(self, root, json, vocabulary, transform=None, max_len=100):
         """Set the path for images, captions and vocabulary wrapper.
         
         Args:
@@ -26,6 +26,7 @@ class CocoDataset(data.Dataset):
         self.ids = list(self.coco.anns.keys())
         self.vocabulary = vocabulary
         self.transform = transform
+        self.max_len = max_len - 2 # for <start> and <end>
 
     def __getitem__(self, index):
         """Returns one data pair (image and caption)."""
@@ -40,6 +41,9 @@ class CocoDataset(data.Dataset):
         image = Image.open(os.path.join(self.root, path)).convert('RGB')
         if self.transform is not None:
             image = self.transform(image)
+
+        if len(caption) > self.max_len:
+            caption = caption[:self.max_len]
 
         # Convert caption (string) to word ids.
         tokens = tokenizer(str(caption).lower())
@@ -79,15 +83,18 @@ def collate_fn(data):
     images = torch.stack(images, 0)
 
     # Merge captions (from tuple of 1D tensor to 2D tensor).
+    max_len = 100
+
     lengths = [len(cap) for cap in captions]
-    targets = torch.zeros(len(captions), 50).long() # (number of captions, maximum size of caption)
+    
+    targets = torch.zeros(len(captions), max_len).long() # (number of captions, maximum size of caption)
     for i, cap in enumerate(captions):
         end = lengths[i] # length of each caption
         targets[i, :end] = cap[:end] # Padding
 
     return images, targets
 
-def get_loader(root, json, vocabulary, transform, batch_size, shuffle, num_workers):
+def get_loader(root, json, vocabulary, transform, batch_size, shuffle, num_workers, max_len):
     """Returns torch.utils.data.DataLoader for custom coco dataset."""
     # COCO caption dataset
     coco = CocoDataset(root=root, json=json, vocabulary=vocabulary, transform=transform)

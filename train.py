@@ -20,7 +20,7 @@ def train_model(args, epoch, model, data_loader, optimizer, loss_fn, device):
 
     total_step = len(data_loader)
     epoch_loss = 0
-    for batch_idx, batch in enumerate(tqdm(data_loader, total=total_step)):
+    for batch_idx, batch in enumerate(data_loader):
             
         # Set mini-batch dataset
         images = batch[0].to(device)
@@ -30,17 +30,19 @@ def train_model(args, epoch, model, data_loader, optimizer, loss_fn, device):
             
         # Forward, backward and optimize
         outputs = model(images, captions) 
+        outputs = outputs.transpose(1, 2) # batch_size, 11532, args.max_len
 
-        outputs = outputs.transpose(1, 2)  
+        argm = outputs.argmax(dim=1)
+        print(argm, argm.size())
+
+        print(outputs.size()) 
 
         loss = loss_fn(outputs, captions)
-            
         loss.backward()
         optimizer.step()
 
         epoch_loss = epoch_loss + loss.item()
             
-
         if batch_idx % args.log_step == 0:
             print('Epoch [{}/{}], Step [{}/{}], Loss: {:.4f}, Perplexity: {:5.4f}'
                     .format(epoch, args.num_epochs, batch_idx, total_step, loss.item(), np.exp(loss.item()))) 
@@ -54,7 +56,7 @@ def validation_model(args, epoch, model, data_loader, optimizer, loss_fn, device
 
     total_step = len(data_loader)
     epoch_loss = 0
-    for batch_idx, batch in enumerate(tqdm(data_loader, total=total_step)):
+    for batch_idx, batch in enumerate(data_loader):
         images = batch[0].to(device)
         captions = batch[1].to(device)
 
@@ -90,10 +92,10 @@ def main(args):
     # Build data loader
     data_loader_train = get_loader(args.image_dir_train, args.caption_path_train, vocabulary, 
                              transform, args.batch_size,
-                             shuffle=True, num_workers=args.num_workers) 
+                             shuffle=True, num_workers=args.num_workers, max_len=args.max_len) 
     data_loader_val = get_loader(args.image_dir_val, args.caption_path_val, vocabulary, 
                              transform, args.batch_size,
-                             shuffle=True, num_workers=args.num_workers) 
+                             shuffle=True, num_workers=args.num_workers, max_len=args.max_len) 
 
     # Build the models
     model = CaptioningModel(args.batch_size, args.embed_size, len(vocabulary)).to(device)
@@ -118,6 +120,7 @@ if __name__ == '__main__':
     parser.add_argument('--model_path', type=str, default='models/' , help='path for saving trained models')
     parser.add_argument('--resize_size', type=int, default=256 , help='size for resizing images')
     parser.add_argument('--crop_size', type=int, default=224 , help='size for randomly cropping images')
+    parser.add_argument('--max_len', type=int, default=100 , help='maximum length for each caption')
     parser.add_argument('--vocab_path', type=str, default='dataset/vocab.pkl', help='path for vocabulary wrapper')
     parser.add_argument('--image_dir_train', type=str, default='dataset/train2017', help='directory for resized train images')
     parser.add_argument('--image_dir_val', type=str, default='dataset/val2017', help='directory for resized validation images')
@@ -129,8 +132,8 @@ if __name__ == '__main__':
     # Model parameters
     parser.add_argument('--embed_size', type=int , default=512, help='dimension of word embedding vectors, using Glove dim=300')
     
-    parser.add_argument('--num_epochs', type=int, default=5)
-    parser.add_argument('--batch_size', type=int, default=32)
+    parser.add_argument('--num_epochs', type=int, default=1)
+    parser.add_argument('--batch_size', type=int, default=64)
     parser.add_argument('--num_workers', type=int, default=2)
     parser.add_argument('--learning_rate', type=float, default=0.001)
     args = parser.parse_args()
