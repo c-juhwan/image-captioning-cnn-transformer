@@ -9,3 +9,6 @@ python setup.py build
 python setup.py install
 
 cd ../../
+
+clear
+echo "Downloaded required packages"
