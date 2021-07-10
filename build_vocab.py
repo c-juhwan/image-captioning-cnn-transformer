@@ -1,72 +1,60 @@
-import nltk
 import pickle
 import argparse
-from collections import Counter
+from torchtext.vocab import vocab
+from torchtext.data import get_tokenizer
+from collections import Counter, OrderedDict
 from pycocotools.coco import COCO
 from tqdm.auto import tqdm
 
-
-class Vocabulary(object):
-    """Simple vocabulary wrapper."""
-    def __init__(self):
-        self.word2idx = {}
-        self.idx2word = {}
-        self.idx = 0
-
-    def add_word(self, word):
-        if not word in self.word2idx:
-            self.word2idx[word] = self.idx
-            self.idx2word[self.idx] = word
-            self.idx += 1
-
-    def __call__(self, word):
-        if not word in self.word2idx:
-            return self.word2idx['<unk>']
-        return self.word2idx[word]
-
-    def __len__(self):
-        return len(self.word2idx)
-
-def build_vocab(json, threshold):
-    """Build a simple vocabulary wrapper."""
-    coco = COCO(json)
+def load_caption(json_path):
+    coco = COCO(json_path)
     counter = Counter()
     ids = coco.anns.keys()
-    
+    tokenizer = get_tokenizer("basic_english")
+
     for i, id in enumerate(tqdm(ids, total=len(ids))):
         caption = str(coco.anns[id]['caption'])
-        tokens = nltk.tokenize.word_tokenize(caption.lower())
+        tokens = tokenizer(caption.lower())
         counter.update(tokens)
 
-    words = [word for word, cnt in counter.items() if cnt >= threshold]
+    sorted_by_freq_tuples = sorted(counter.items(), key=lambda x: x[1], reverse=True)
+    ordered_dict = OrderedDict(sorted_by_freq_tuples)
 
-    vocab = Vocabulary()
-    vocab.add_word('<pad>')
-    vocab.add_word('<start>')
-    vocab.add_word('<end>')
-    vocab.add_word('<unk>')
+    return ordered_dict
 
-    # Add the words to the vocabulary.
-    for i, word in enumerate(words):
-        vocab.add_word(word)
-    return vocab
+def build_vocab(ordered_dict, threshold):
+    vocabulary = vocab(ordered_dict, min_freq=threshold)
+
+    vocabulary.insert_token('<pad>', 0)
+    vocabulary.insert_token('<start>', 1)
+    vocabulary.insert_token('<end>', 2)
+    vocabulary.insert_token('<unk>', 3)
+
+    vocabulary.set_default_index(vocabulary['<unk>'])
+    print(type(vocabulary))
+
+    return vocabulary
 
 def main(args):
-    nltk.download('punkt')
-    vocab = build_vocab(json=args.caption_path, threshold=args.threshold)
+    json_path = args.caption_path
     vocab_path = args.vocab_path
+    threshold = args.threshold
+
+    ordered_dict = load_caption(json_path)
+    vocabulary = build_vocab(ordered_dict, threshold)
+
     with open(vocab_path, 'wb') as f:
         pickle.dump(vocab, f)
+
     print("Total vocabulary size: {}".format(len(vocab)))
     print("Saved the vocabulary wrapper to '{}'".format(vocab_path))
-
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--caption_path', type=str, 
                         default='dataset/annotations/captions_train2017.json', 
                         help='path for train annotation file')
-    parser.add_argument('--vocab_path', type=str, default='./dataset/vocab_train2017.pkl', 
+    parser.add_argument('--vocab_path', type=str, default='./dataset/vocab.pkl', 
                         help='path for saving vocabulary wrapper')
     parser.add_argument('--threshold', type=int, default=4, 
                         help='minimum word count threshold')

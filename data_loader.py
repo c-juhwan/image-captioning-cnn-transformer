@@ -6,46 +6,48 @@ import pickle
 import numpy as np
 import nltk
 from PIL import Image
-from build_vocab import Vocabulary
 from pycocotools.coco import COCO
+from torchtext.data import get_tokenizer
 
 
 class CocoDataset(data.Dataset):
     """COCO Custom Dataset compatible with torch.utils.data.DataLoader."""
-    def __init__(self, root, json, vocab, transform=None):
+    def __init__(self, root, json, vocabulary, transform=None):
         """Set the path for images, captions and vocabulary wrapper.
         
         Args:
             root: image directory.
             json: coco annotation file path.
-            vocab: vocabulary wrapper.
+            vocabulary: torchtext.vocab.Vocab
             transform: image transformer.
         """
         self.root = root
         self.coco = COCO(json)
         self.ids = list(self.coco.anns.keys())
-        self.vocab = vocab
+        self.vocabulary = vocabulary
         self.transform = transform
 
     def __getitem__(self, index):
         """Returns one data pair (image and caption)."""
         coco = self.coco
-        vocab = self.vocab
+        vocabulary = self.vocabulary
         ann_id = self.ids[index]
         caption = coco.anns[ann_id]['caption']
         img_id = coco.anns[ann_id]['image_id']
         path = coco.loadImgs(img_id)[0]['file_name']
+        tokenizer = get_tokenizer("basic_english")
 
         image = Image.open(os.path.join(self.root, path)).convert('RGB')
         if self.transform is not None:
             image = self.transform(image)
 
         # Convert caption (string) to word ids.
-        tokens = nltk.tokenize.word_tokenize(str(caption).lower())
+        tokens = tokenizer(str(caption).lower())
         caption = []
-        caption.append(vocab('<start>'))
-        caption.extend([vocab(token) for token in tokens])
-        caption.append(vocab('<end>'))
+        caption.append(vocabulary['<start>'])
+        caption.extend([vocabulary[token] for token in tokens])
+        caption.append(vocabulary['<end>'])
+        tokens.append('<start>')
 
         target = torch.Tensor(caption)
         return image, target
@@ -78,17 +80,17 @@ def collate_fn(data):
 
     # Merge captions (from tuple of 1D tensor to 2D tensor).
     lengths = [len(cap) for cap in captions]
-    targets = torch.zeros(len(captions), max(lengths)).long() # (number of captions, maximum size of caption)
+    targets = torch.zeros(len(captions), 50).long() # (number of captions, maximum size of caption)
     for i, cap in enumerate(captions):
         end = lengths[i] # length of each caption
         targets[i, :end] = cap[:end] # Padding
 
     return images, targets
 
-def get_loader(root, json, vocab, transform, batch_size, shuffle, num_workers):
+def get_loader(root, json, vocabulary, transform, batch_size, shuffle, num_workers):
     """Returns torch.utils.data.DataLoader for custom coco dataset."""
     # COCO caption dataset
-    coco = CocoDataset(root=root, json=json, vocab=vocab, transform=transform)
+    coco = CocoDataset(root=root, json=json, vocabulary=vocabulary, transform=transform)
 
     # Data loader for COCO dataset
     # This will return (images, captions, lengths) for each iteration.
