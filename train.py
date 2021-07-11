@@ -26,18 +26,13 @@ def train_model(args, epoch, model, data_loader, optimizer, loss_fn, device):
         images = batch[0].to(device)
         captions = batch[1].to(device)
 
-        model.zero_grad()
+        optimizer.zero_grad()
             
         # Forward, backward and optimize
-        outputs = model(images, captions) 
+        outputs = model(images, captions[:, :-1]) 
         outputs = outputs.transpose(1, 2) # batch_size, 11532, args.max_len
 
-        argm = outputs.argmax(dim=1)
-        print(argm, argm.size())
-
-        print(outputs.size()) 
-
-        loss = loss_fn(outputs, captions)
+        loss = loss_fn(outputs, captions[:, 1:])
         loss.backward()
         optimizer.step()
 
@@ -56,17 +51,22 @@ def validation_model(args, epoch, model, data_loader, optimizer, loss_fn, device
 
     total_step = len(data_loader)
     epoch_loss = 0
+    validation_accuracy = 0
     for batch_idx, batch in enumerate(data_loader):
         images = batch[0].to(device)
         captions = batch[1].to(device)
 
         with torch.no_grad():
-            predictions = model(images, captions)
+            outputs = model(images, captions[:, :-1])
                 
-        loss = loss_fn(predictions, captions)
+        loss = loss_fn(outputs, captions[:, 1:])
+        predictions = torch.argmax(outputs.detach().cpu(), dim=2)
+        accuracy = (predictions == captions).sum() / len(captions) * 100
 
-        print('Epoch [{}/{}] Finished, Average Loss: {:.4f}'
-                      .format(epoch, args.num_epochs, epoch_loss/total_step))
+        validation_accuracy += accuracy
+
+    print('Validation for Epoch [{}/{}] Finished, Validation Accuracy : {:.4f}'
+        .format(epoch, args.num_epochs, validation_accuracy))
 
 
 def main(args):
@@ -120,7 +120,7 @@ if __name__ == '__main__':
     parser.add_argument('--model_path', type=str, default='models/' , help='path for saving trained models')
     parser.add_argument('--resize_size', type=int, default=256 , help='size for resizing images')
     parser.add_argument('--crop_size', type=int, default=224 , help='size for randomly cropping images')
-    parser.add_argument('--max_len', type=int, default=100 , help='maximum length for each caption')
+    parser.add_argument('--max_len', type=int, default=400 , help='maximum length for each caption')
     parser.add_argument('--vocab_path', type=str, default='dataset/vocab.pkl', help='path for vocabulary wrapper')
     parser.add_argument('--image_dir_train', type=str, default='dataset/train2017', help='directory for resized train images')
     parser.add_argument('--image_dir_val', type=str, default='dataset/val2017', help='directory for resized validation images')

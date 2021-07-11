@@ -12,7 +12,7 @@ from torchtext.data import get_tokenizer
 
 class CocoDataset(data.Dataset):
     """COCO Custom Dataset compatible with torch.utils.data.DataLoader."""
-    def __init__(self, root, json, vocabulary, transform=None, max_len=100):
+    def __init__(self, root, json, vocabulary, transform=None, max_len=400):
         """Set the path for images, captions and vocabulary wrapper.
         
         Args:
@@ -51,7 +51,6 @@ class CocoDataset(data.Dataset):
         caption.append(vocabulary['<start>'])
         caption.extend([vocabulary[token] for token in tokens])
         caption.append(vocabulary['<end>'])
-        tokens.append('<start>')
 
         target = torch.Tensor(caption)
         return image, target
