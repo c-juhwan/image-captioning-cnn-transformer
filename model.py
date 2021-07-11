@@ -51,7 +51,7 @@ class CaptioningModel(nn.Module):
         # tgt=embedding: (batch_size, 300, 512) -> N=batch_size, T=max_len=Target Seq Length, E=d_model=feature number
         # out: (batch_size, 300, 512) -> N, T, E
         out = out[non_pad_pos] # delete padding part
-        out = self.linear_out(out) # out: (batch_size, len, vocab_size)
+        out = self.linear_out(out) # out: (length of all batch, vocab_size)
 
         return out
 

@@ -16,7 +16,20 @@ def main(args):
         transforms.Resize((args.resize_size, args.resize_size)),
         transforms.ToTensor(),
         transforms.Normalize((0.485, 0.456, 0.406),
-                             (0.229, 0.224, 0.225))])    
+                             (0.229, 0.224, 0.225))])
+    
+    # Load vocabulary from build_vocab.py
+    with open(args.vocab_path, 'rb') as f:
+        # use saved vocab file from main() of build_vocab.py
+        vocabulary = pickle.load(f)
+    
+    # Build data loader
+    data_loader_test = get_loader(args.image_dir_test, args.caption_path_test, vocabulary, 
+                             transform, args.batch_size,
+                             shuffle=True, num_workers=args.num_workers, max_len=args.max_len) 
+    
+    # Build Model
+    model = CaptioningModel(args.batch_size, len(vocabulary), args.embed_size, args.d_model, args.max_len).to(device)  
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()

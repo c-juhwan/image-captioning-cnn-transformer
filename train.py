@@ -35,14 +35,17 @@ def train_model(args, epoch_idx, model, data_loader, optimizer, loss_fn, device=
         outputs = model(images, captions[:, :-1], non_pad) # outputs: (batch_size, len, vocab_size)
         #outputs = outputs.transpose(1, 2) # outputs: (batch_size, vocab_size, len)
 
-        predictions = outputs.contiguous().view(-1, outputs.size(-1))
+        outputs = outputs.view(-1, outputs.size(-1))
+        print(outputs)
         labels = labels[non_pad].contiguous().view(-1) # model didn't generate <start>
 
-        loss = loss_fn(predictions, labels)
+        loss = loss_fn(outputs, labels)
         loss.backward()
         optimizer.step()
 
-        acc = (predictions.argmax(dim=1) == labels).sum() / len(labels)
+        print(outputs.size(), labels.size())
+
+        acc = (outputs.argmax(dim=1) == labels).sum() / len(labels)
 
         epoch_loss += loss.item()
         epoch_acc += (acc.item() * 100)
