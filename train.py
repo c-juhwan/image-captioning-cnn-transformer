@@ -4,69 +4,102 @@ import torch.nn as nn
 import numpy as np
 import os
 import pickle
-from data_loader import get_loader 
-from model import CaptioningModel
+from data_loader import get_loader
 from torchvision import transforms
 from tqdm.auto import tqdm
 from torchtext.vocab import Vocab
+from model import CaptioningModel
+import time
+from datetime import timedelta
 
-
-# Device configuration
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-
-def train_model(args, epoch, model, data_loader, optimizer, loss_fn, device):
+def train_model(args, epoch_idx, model, data_loader, optimizer, loss_fn, device=device):
+    print("Start training epoch[{}/{}]".format(epoch_idx+1, args.num_epochs))
+    start_time = time.time()
     model = model.train()
 
-    total_step = len(data_loader)
     epoch_loss = 0
+    epoch_acc = 0
+
     for batch_idx, batch in enumerate(data_loader):
-            
-        # Set mini-batch dataset
         images = batch[0].to(device)
         captions = batch[1].to(device)
 
-        optimizer.zero_grad()
-            
-        # Forward, backward and optimize
-        outputs = model(images, captions[:, :-1]) 
-        outputs = outputs.transpose(1, 2) # batch_size, 11532, args.max_len
+        labels = captions[:, 1:]
+        non_pad = labels != 0 # <pad> = 0
 
-        loss = loss_fn(outputs, captions[:, 1:])
+        optimizer.zero_grad()
+
+        # Exclude <end> from input -> we don't need to feed <end>
+        outputs = model(images, captions[:, :-1], non_pad) # outputs: (batch_size, len, vocab_size)
+        #outputs = outputs.transpose(1, 2) # outputs: (batch_size, vocab_size, len)
+
+        outputs = outputs.view(-1, outputs.size(-1))
+        print(outputs)
+        labels = labels[non_pad].contiguous().view(-1) # model didn't generate <start>
+
+        loss = loss_fn(outputs, labels)
         loss.backward()
         optimizer.step()
 
-        epoch_loss = epoch_loss + loss.item()
-            
+        print(outputs.size(), labels.size())
+
+        acc = (outputs.argmax(dim=1) == labels).sum() / len(labels)
+
+        epoch_loss += loss.item()
+        epoch_acc += (acc.item() * 100)
+
         if batch_idx % args.log_step == 0:
-            print('Epoch [{}/{}], Step [{}/{}], Loss: {:.4f}, Perplexity: {:5.4f}'
-                    .format(epoch, args.num_epochs, batch_idx, total_step, loss.item(), np.exp(loss.item()))) 
+            print('Epoch [{}/{}], Step [{}/{}], Loss: {:.4f}, Acc: {:5.4f}'
+                    .format(epoch_idx+1, args.num_epochs, batch_idx, len(data_loader), epoch_loss/(batch_idx+1), epoch_acc/(batch_idx+1))) 
+        if batch_idx % args.save_step == 0:
+            torch.save(model.state_dict(), os.path.join(args.model_path, 'model-{}-{}.pt'.format(epoch_idx+1, batch_idx+1)))
 
-        # Save the model checkpoints
-        if (batch_idx+1) % args.save_step == 0:
-            torch.save(model.state_dict(), os.path.join(args.model_path, 'model-{}-{}.pt'.format(epoch+1, batch_idx+1)))
+    elapsed_time = time.time() - start_time
+    elapsed_time = str(timedelta(seconds=elapsed_time))
+    average_loss = epoch_loss / len(data_loader)
 
-def validation_model(args, epoch, model, data_loader, optimizer, loss_fn, device):
-    model.eval()
+    print("End training epoch[{}/{}], Elapsed time = {}, Average loss = {}, Train acc = {}"
+          .format(epoch_idx+1, args.num_epochs, elapsed_time, average_loss, epoch_acc))
 
-    total_step = len(data_loader)
+
+def validation_model(args, epoch_idx, model, data_loader, loss_fn, device=device):
+    print("Start validation for epoch[{}/{}]".format(epoch_idx+1, args.num_epochs))
+    start_time = time.time()
+    model = model.eval()
+
     epoch_loss = 0
-    validation_accuracy = 0
-    for batch_idx, batch in enumerate(data_loader):
-        images = batch[0].to(device)
-        captions = batch[1].to(device)
+    epoch_acc = 0
 
-        with torch.no_grad():
-            outputs = model(images, captions[:, :-1])
-                
-        loss = loss_fn(outputs, captions[:, 1:])
-        predictions = torch.argmax(outputs.detach().cpu(), dim=2)
-        accuracy = (predictions == captions).sum() / len(captions) * 100
+    with torch.no_grad():
+        for batch_idx, batch in enumerate(data_loader):
+            images = batch[0].to(device)
+            captions = batch[1].to(device)
 
-        validation_accuracy += accuracy
+            labels = captions[:, 1:]
+            non_pad = labels != 0 # <pad> = 0
 
-    print('Validation for Epoch [{}/{}] Finished, Validation Accuracy : {:.4f}'
-        .format(epoch, args.num_epochs, validation_accuracy))
+            # Exclude <end> from input -> we don't need to feed <end>
+            outputs = model(images, captions[:, :-1], non_pad) # outputs: (batch_size, len, vocab_size)
+            outputs = outputs.transpose(1, 2) # outputs: (batch_size, vocab_size, len)
+
+            predictions = outputs.contoguous().view(-1, outputs.size(-1))
+            labels = labels[non_pad].contiguous().view(-1) # model didn't generate <start>
+
+            loss = loss_fn(predictions, labels)
+            acc = (predictions.argmax(dim=1) == labels).sum() / len(labels)
+
+            epoch_loss += loss.item()
+            epoch_acc += (acc.item() * 100)
+
+        elapsed_time = time.time() - start_time
+        elapsed_time = str(timedelta(seconds=elapsed_time))
+        average_loss = epoch_loss / len(data_loader)
+
+    print("End validation for epoch[{}/{}], Elapsed time = {}, Average loss = {}, Accuracy = {}"
+          .format(epoch_idx+1, args.num_epochs, elapsed_time, average_loss, epoch_acc))
+
 
 
 def main(args):
@@ -74,17 +107,14 @@ def main(args):
     if not os.path.exists(args.model_path):
         os.makedirs(args.model_path)
     
-    # Image preprocessing, normalization for the pretrained resnet
+    # Image preprocessing, normalization for the pretrained cnn backbone
     transform = transforms.Compose([ 
         transforms.Resize((args.resize_size, args.resize_size)),
-        transforms.RandomCrop(args.crop_size), # crop 224x224 from 256x256 image
-        transforms.RandomHorizontalFlip(),
-        transforms.RandomVerticalFlip(),
         transforms.ToTensor(),
         transforms.Normalize((0.485, 0.456, 0.406),
                              (0.229, 0.224, 0.225))])
     
-    # Load vocabulary wrapper
+    # Load vocabulary from build_vocab.py
     with open(args.vocab_path, 'rb') as f:
         # use saved vocab file from main() of build_vocab.py
         vocabulary = pickle.load(f)
@@ -96,45 +126,42 @@ def main(args):
     data_loader_val = get_loader(args.image_dir_val, args.caption_path_val, vocabulary, 
                              transform, args.batch_size,
                              shuffle=True, num_workers=args.num_workers, max_len=args.max_len) 
-
-    # Build the models
-    model = CaptioningModel(args.batch_size, args.embed_size, len(vocabulary)).to(device)
     
-    # Loss and optimizer
+    # Build Model
+    model = CaptioningModel(args.batch_size, len(vocabulary), args.embed_size, args.d_model, args.max_len).to(device)
+
+    # Define loss function and optimizer
+
     loss_fn = nn.CrossEntropyLoss()
-    # You don't need to train efficientnet
-    params = list(list(model.linear_feature.parameters()) + list(model.embed.parameters()) + list(model.transformer.parameters()) + list(model.linear_out.parameters()))
-    optimizer = torch.optim.Adam(params, lr=args.learning_rate)
-    
-    # Epoch the models
-    for epoch in tqdm(range(args.num_epochs)):
-        # Train
-        train_model(args, epoch, model, data_loader_train, optimizer, loss_fn, device)
+    optimizer = torch.optim.Adam(model.parameters(), lr=args.learning_rate)
 
-        # Validation after each epoch
-        validation_model(args, epoch, model, data_loader_val, optimizer, loss_fn, device)
+    for epoch_idx in tqdm(range(args.num_epochs)):
+        train_model(args, epoch_idx, model, data_loader_train, optimizer, loss_fn)
+
+        validation_model(args, epoch_idx, model, data_loader_val, loss_fn)
 
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('--model_path', type=str, default='models/' , help='path for saving trained models')
-    parser.add_argument('--resize_size', type=int, default=256 , help='size for resizing images')
-    parser.add_argument('--crop_size', type=int, default=224 , help='size for randomly cropping images')
-    parser.add_argument('--max_len', type=int, default=400 , help='maximum length for each caption')
+    parser.add_argument('--model_name', type=str, default='CaptioningModel', help='name of model')
+    parser.add_argument('--model_path', type=str, default='models/', help='path for saving trained models')
+    parser.add_argument('--resize_size', type=int, default=224, help='size for resizing images')
+    parser.add_argument('--max_len', type=int, default=300, help='maximum length for each caption')
     parser.add_argument('--vocab_path', type=str, default='dataset/vocab.pkl', help='path for vocabulary wrapper')
     parser.add_argument('--image_dir_train', type=str, default='dataset/train2017', help='directory for resized train images')
     parser.add_argument('--image_dir_val', type=str, default='dataset/val2017', help='directory for resized validation images')
     parser.add_argument('--caption_path_train', type=str, default='dataset/annotations/captions_train2017.json', help='path for train annotation json file')
     parser.add_argument('--caption_path_val', type=str, default='dataset/annotations/captions_val2017.json', help='path for train annotation json file')
-    parser.add_argument('--log_step', type=int , default=1000, help='step size for prining log info')
-    parser.add_argument('--save_step', type=int , default=1000, help='step size for saving trained models')
+    parser.add_argument('--log_step', type=int, default=100, help='step size for prining log info')
+    parser.add_argument('--save_step', type=int, default=1000, help='step size for saving trained models')
     
     # Model parameters
-    parser.add_argument('--embed_size', type=int , default=512, help='dimension of word embedding vectors, using Glove dim=300')
+    parser.add_argument('--embed_size', type=int, default=256, help='dimension of word embedding vectors')
+    parser.add_argument('--d_model', type=int, default=512, help='dimension of transformer model')
     
-    parser.add_argument('--num_epochs', type=int, default=1)
+    parser.add_argument('--num_epochs', type=int, default=2)
     parser.add_argument('--batch_size', type=int, default=64)
-    parser.add_argument('--num_workers', type=int, default=2)
+    parser.add_argument('--num_workers', type=int, default=4)
     parser.add_argument('--learning_rate', type=float, default=0.001)
     args = parser.parse_args()
     print(args)

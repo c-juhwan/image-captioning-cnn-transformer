@@ -14,4 +14,4 @@ unzip ./dataset/annotations_trainval2017.zip -d ./dataset/
 rm ./dataset/annotations_trainval2017.zip
 
 clear
-echo "Downloaded dataset to ./dataset"
+echo "Downloaded COCO2017 dataset to ./dataset"

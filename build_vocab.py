@@ -6,7 +6,15 @@ from collections import Counter, OrderedDict
 from pycocotools.coco import COCO
 from tqdm.auto import tqdm
 
-def load_caption(json_path):
+def load_caption(json_path:str):
+    """
+    Load caption from json file
+
+    Args:
+        json_path (str): path to json file
+    Returns:
+        OrderedDict
+    """
     coco = COCO(json_path)
     counter = Counter()
     ids = coco.anns.keys()
@@ -22,7 +30,17 @@ def load_caption(json_path):
 
     return ordered_dict
 
-def build_vocab(ordered_dict, threshold):
+def build_vocab(ordered_dict:OrderedDict, threshold:int):
+    """
+    Build torchtext torchtext.vocab.Vocab by torchtext.vocab.vocab()
+    Insert special tokens - <pad>, <start>, <end>, <unk>
+    
+    Args:
+        ordered_dict (OrderedDict): result of load_caption() function
+        threshold (int): minumum frequency of word
+    Returns:
+        torchtext.vocab.Vocab
+    """
     vocabulary = vocab(ordered_dict, min_freq=threshold)
 
     vocabulary.insert_token('<pad>', 0)
@@ -35,6 +53,14 @@ def build_vocab(ordered_dict, threshold):
     return vocabulary
 
 def main(args):
+    """
+    Build torchtext Vocab object and save it to pickle file
+    
+    Args:
+        args.caption_path (str): path for annotation file
+        args.vocab_path (str): path for saving vocabulary data
+        args.threshold (int): minimum word count threshold
+    """
     json_path = args.caption_path
     vocab_path = args.vocab_path
     threshold = args.threshold
@@ -54,8 +80,8 @@ if __name__ == '__main__':
                         default='dataset/annotations/captions_train2017.json', 
                         help='path for train annotation file')
     parser.add_argument('--vocab_path', type=str, default='./dataset/vocab.pkl', 
-                        help='path for saving vocabulary wrapper')
-    parser.add_argument('--threshold', type=int, default=4, 
+                        help='path for saving vocabulary data')
+    parser.add_argument('--threshold', type=int, default=3, 
                         help='minimum word count threshold')
     args = parser.parse_args()
     main(args)
