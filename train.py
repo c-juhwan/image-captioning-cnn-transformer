@@ -33,9 +33,9 @@ def train_model(args, epoch_idx, model, data_loader, optimizer, loss_fn, device=
 
         # Exclude <end> from input -> we don't need to feed <end>
         outputs = model(images, captions[:, :-1], non_pad) # outputs: (batch_size, len, vocab_size)
-        outputs = outputs.transpose(1, 2) # outputs: (batch_size, vocab_size, len)
+        #outputs = outputs.transpose(1, 2) # outputs: (batch_size, vocab_size, len)
 
-        predictions = outputs.contoguous().view(-1, outputs.size(-1))
+        predictions = outputs.contiguous().view(-1, outputs.size(-1))
         labels = labels[non_pad].contiguous().view(-1) # model didn't generate <start>
 
         loss = loss_fn(predictions, labels)
@@ -46,6 +46,12 @@ def train_model(args, epoch_idx, model, data_loader, optimizer, loss_fn, device=
 
         epoch_loss += loss.item()
         epoch_acc += (acc.item() * 100)
+
+        if batch_idx % args.log_step == 0:
+            print('Epoch [{}/{}], Step [{}/{}], Loss: {:.4f}, Acc: {:5.4f}'
+                    .format(epoch_idx+1, args.num_epochs, batch_idx, len(data_loader), epoch_loss/(batch_idx+1), epoch_acc/(batch_idx+1))) 
+        if batch_idx % args.save_step == 0:
+            torch.save(model.state_dict(), os.path.join(args.model_path, 'model-{}-{}.pt'.format(epoch_idx+1, batch_idx+1)))
 
     elapsed_time = time.time() - start_time
     elapsed_time = str(timedelta(seconds=elapsed_time))
@@ -119,22 +125,18 @@ def main(args):
                              shuffle=True, num_workers=args.num_workers, max_len=args.max_len) 
     
     # Build Model
-    model = CaptioningModel(args.batch_size, len(vocabulary), args.embed_size, args.d_model, args.max_len)
+    model = CaptioningModel(args.batch_size, len(vocabulary), args.embed_size, args.d_model, args.max_len).to(device)
 
     # Define loss function and optimizer
 
-    loss_fn = nn.CrossEntropyloss()
+    loss_fn = nn.CrossEntropyLoss()
     optimizer = torch.optim.Adam(model.parameters(), lr=args.learning_rate)
 
-
     for epoch_idx in tqdm(range(args.num_epochs)):
-        train_model()
+        train_model(args, epoch_idx, model, data_loader_train, optimizer, loss_fn)
 
-        validation_model()
-        
+        validation_model(args, epoch_idx, model, data_loader_val, loss_fn)
 
-
-    
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()

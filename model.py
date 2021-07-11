@@ -4,6 +4,8 @@ import math
 from efficientnet_pytorch import EfficientNet
 
 
+device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
 class CaptioningModel(nn.Module):
     def __init__(self, batch_size, vocab_size, embed_size=256, d_model=512, max_len=300):
         """
@@ -11,9 +13,8 @@ class CaptioningModel(nn.Module):
         """
         super(CaptioningModel, self).__init__()
         self.batch_size = batch_size
-        self.feature_size = self.efficientnet._fc.in_features
-
         self.efficientnet = EfficientNet.from_pretrained('efficientnet-b7')
+        self.feature_size = self.efficientnet._fc.in_features
         self.pixel_embed = PixelEmbedding()
         self.linear_feature = nn.Linear(self.feature_size, d_model)
         self.text_embed = TextEmbedding(vocab_size, embed_size, d_model, max_len, padding_idx=0)
@@ -52,6 +53,8 @@ class CaptioningModel(nn.Module):
         out = out[non_pad_pos] # delete padding part
         out = self.linear_out(out) # out: (batch_size, len, vocab_size)
 
+        return out
+
         
 class PixelEmbedding(nn.Module):
     """
@@ -65,8 +68,8 @@ class PixelEmbedding(nn.Module):
         pixel_num = features.size(1) # 7x7 -> 49
         feature_num = features.size(2) # 2560
 
-        cls_token = nn.Parameter(torch.randn(1, feature_num))
-        positions = nn.Parameter(torch.randn(pixel_num + 1, feature_num)) # +1 for cls_token
+        cls_token = nn.Parameter(torch.randn(1, feature_num)).to(device)
+        positions = nn.Parameter(torch.randn(pixel_num + 1, feature_num)).to(device) # +1 for cls_token
         
         cls_tokens = cls_token.repeat(batch_size, 1, 1) # cls_token: (batch_size, 1, feature_num)
 
@@ -81,7 +84,7 @@ class TextEmbedding(nn.Module):
         
         self.embed = nn.Embedding(vocab_size, embed_size, padding_idx)
         self.linear = nn.Linear(embed_size, d_model)
-        self.pos_encoding = PositionalEncoding(d_model, max_len)
+        self.pos_encoding = PositionalEncoding(d_model, max_seq_len=max_len)
 
     def forward(self, sentence):
         # sentence: (batch_size, max_len)

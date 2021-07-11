@@ -11,7 +11,7 @@ class COCODataset(torch.utils.data.Dataset):
     Inherit:
         torch.utils.data.Dataset
     """
-    def __init__(self, root:str, json_path:str, vocabulary, max_len:int=300):
+    def __init__(self, root:str, json_path:str, vocabulary, transform=None, max_len:int=300):
         """
         Set image and caption file path, load vocabulary built from build_vocab.py
 
@@ -28,6 +28,8 @@ class COCODataset(torch.utils.data.Dataset):
         self.vocabulary = vocabulary
         self.max_len = max_len - 2 # For <start> and <end>
         self.tokenizer = get_tokenizer("basic_english")
+        self.transform = transform
+        self.max_len = max_len - 2 # for <start> and <end>
 
         global maximum_length
         maximum_length = max_len
@@ -46,6 +48,8 @@ class COCODataset(torch.utils.data.Dataset):
         path = self.coco.loadImgs(img_id)[0]['file_name']
 
         img = Image.open(os.path.join(self.root, path)).convert('RGB')
+        if self.transform is not None:
+            img = self.transform(img)
 
         if len(caption) > self.max_len:
             caption = caption[:self.max_len]
@@ -86,6 +90,7 @@ def collate_fn(data):
     data.sort(key=lambda x: len(x[1]), reverse=True)
     # Get each tuple of images and tuple of captions from list of tuple
     images, captions = zip(*data)
+    images = torch.stack(images, 0)
 
     caption_lengths = [len(cap) for cap in captions]
     targets = torch.zeros(len(captions), maximum_length).long()
@@ -95,7 +100,7 @@ def collate_fn(data):
 
     return images, targets
 
-def get_loader(root:str, json_path:str, vocabulary, batch_size:int, shuffle:bool, num_workers:int, max_len:int):
+def get_loader(root:str, json_path:str, vocabulary, transform, batch_size:int, shuffle:bool, num_workers:int, max_len:int):
     """
     Args:
         root (str): path for image files
@@ -111,7 +116,7 @@ def get_loader(root:str, json_path:str, vocabulary, batch_size:int, shuffle:bool
                      with custom dataset and custom collate_fn
     """
 
-    dataset = COCODataset(root=root, json_path=json_path, vocabulary=vocabulary, max_len=max_len)
+    dataset = COCODataset(root=root, json_path=json_path, vocabulary=vocabulary, transform=transform, max_len=max_len)
 
     data_loader = torch.utils.data.DataLoader(dataset=dataset, batch_size=batch_size, 
                                               shuffle=shuffle, num_workers=num_workers,
