@@ -33,7 +33,7 @@ class CaptioningModel(nn.Module):
         self.norm = nn.LayerNorm(embed_size)
         self.linear_out2 = nn.Linear(embed_size, vocab_size)
     
-    def forward(self, images, captions, non_pad_pos):
+    def forward(self, images, captions, tgt_mask, non_pad_pos):
         """ 
         Args:
 
@@ -43,6 +43,8 @@ class CaptioningModel(nn.Module):
         """
         # images: (batch_size, 3, H, W) -> default HxW = 224x224 
         # captions: (batch_size, max_len) -> default max_len is 300, caption[1] is vocabulary index
+
+        tgt_key_padding_mask = (captions == 0) # <pad> = 0
 
         with torch.no_grad():
             features = self.efficientnet.extract_features(images) # Extract feature from EfficientNet
@@ -55,7 +57,7 @@ class CaptioningModel(nn.Module):
 
         embedding = self.text_embed(captions) # embedding: (batch_size, max_len, d_model)
 
-        out = self.transformer(src=features, tgt=embedding)
+        out = self.transformer(src=features, tgt=embedding, tgt_mask=tgt_mask, tgt_key_padding_mask=tgt_key_padding_mask)
         # <nn.Trasformer>
         # src=features: (batch_size, 50, 512) -> N=batch_size, S=50=Source Seq Length, E=d_model=feature number
         # tgt=embedding: (batch_size, 300, 512) -> N=batch_size, T=max_len=Target Seq Length, E=d_model=feature number
@@ -70,6 +72,11 @@ class CaptioningModel(nn.Module):
         out = self.linear_out2(out) # out: (length of all batch, vocab_size)
 
         return out
+
+    def generate_square_subsequent_mask(self, sz, device):
+        mask = torch.tril(torch.ones(sz, sz, dtype=torch.float, device=device))
+        mask = mask.masked_fill(mask == 0, float('-inf')).masked_fill(mask == 1, 0.0)
+        return mask
 
         
 class PixelEmbedding(nn.Module):

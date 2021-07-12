@@ -29,11 +29,12 @@ def train_model(args, epoch_idx, model, data_loader, optimizer, loss_fn, device=
 
         labels = captions[:, 1:]
         non_pad = labels != 0 # <pad> = 0
+        tgt_mask = model.generate_square_subsequent_mask((args.max_len - 1), device)
 
         optimizer.zero_grad()
 
         # Exclude <end> from input -> we don't need to feed <end>
-        outputs = model(images, captions[:, :-1], non_pad) # outputs: (batch_size, len, vocab_size)
+        outputs = model(images, captions[:, :-1], tgt_mask, non_pad) # outputs: (batch_size, len, vocab_size)
         #outputs = outputs.transpose(1, 2) # outputs: (batch_size, vocab_size, len)
 
         outputs = outputs.view(-1, outputs.size(-1))
