@@ -21,6 +21,7 @@ def train_model(args, epoch_idx, model, data_loader, optimizer, loss_fn, device=
 
     epoch_loss = 0
     epoch_acc = 0
+    global vocabulary
 
     for batch_idx, batch in enumerate(data_loader):
         images = batch[0].to(device)
@@ -36,14 +37,14 @@ def train_model(args, epoch_idx, model, data_loader, optimizer, loss_fn, device=
         #outputs = outputs.transpose(1, 2) # outputs: (batch_size, vocab_size, len)
 
         outputs = outputs.view(-1, outputs.size(-1))
-        print(outputs)
         labels = labels[non_pad].contiguous().view(-1) # model didn't generate <start>
+        print("<Result> - ", batch_idx, vocabulary.lookup_tokens(outputs.argmax(dim=1).tolist()))
+        print("<Labels> - ", batch_idx, vocabulary.lookup_tokens(labels.tolist()))
+        print("")
 
         loss = loss_fn(outputs, labels)
         loss.backward()
         optimizer.step()
-
-        print(outputs.size(), labels.size())
 
         acc = (outputs.argmax(dim=1) == labels).sum() / len(labels)
 
@@ -84,11 +85,11 @@ def validation_model(args, epoch_idx, model, data_loader, loss_fn, device=device
             outputs = model(images, captions[:, :-1], non_pad) # outputs: (batch_size, len, vocab_size)
             outputs = outputs.transpose(1, 2) # outputs: (batch_size, vocab_size, len)
 
-            predictions = outputs.contoguous().view(-1, outputs.size(-1))
+            outputs = outputs.contoguous().view(-1, outputs.size(-1))
             labels = labels[non_pad].contiguous().view(-1) # model didn't generate <start>
 
-            loss = loss_fn(predictions, labels)
-            acc = (predictions.argmax(dim=1) == labels).sum() / len(labels)
+            loss = loss_fn(outputs, labels)
+            acc = (outputs.argmax(dim=1) == labels).sum() / len(labels)
 
             epoch_loss += loss.item()
             epoch_acc += (acc.item() * 100)
@@ -114,10 +115,12 @@ def main(args):
         transforms.Normalize((0.485, 0.456, 0.406),
                              (0.229, 0.224, 0.225))])
     
+    global vocabulary
     # Load vocabulary from build_vocab.py
     with open(args.vocab_path, 'rb') as f:
         # use saved vocab file from main() of build_vocab.py
         vocabulary = pickle.load(f)
+    
     
     # Build data loader
     data_loader_train = get_loader(args.image_dir_train, args.caption_path_train, vocabulary, 

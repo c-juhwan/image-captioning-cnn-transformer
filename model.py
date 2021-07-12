@@ -13,19 +13,29 @@ class CaptioningModel(nn.Module):
         """
         super(CaptioningModel, self).__init__()
         self.batch_size = batch_size
+
         self.efficientnet = EfficientNet.from_pretrained('efficientnet-b7')
+        self.efficientnet.requires_grad_(False)
         self.feature_size = self.efficientnet._fc.in_features
+
         self.pixel_embed = PixelEmbedding()
         self.linear_feature = nn.Linear(self.feature_size, d_model)
-        self.text_embed = TextEmbedding(vocab_size, embed_size, d_model, max_len, padding_idx=0)
-        self.transformer = nn.Transformer(d_model=d_model, batch_first=True)
-        self.linear_out = nn.Linear(d_model, vocab_size) 
 
-        self.efficientnet.requires_grad_(False)
+        self.text_embed = TextEmbedding(vocab_size, embed_size, d_model, max_len, padding_idx=0)
+
+        self.transformer = nn.Transformer(d_model=d_model, batch_first=True)
+        #decoder_layer = nn.TransformerDecoderLayer(d_model=d_model, nhead=8)
+        #self.transformer_decoder = nn.TransformerDecoder(decoder_layer, num_layers=6)
+
+        self.linear_out = nn.Linear(d_model, embed_size)
+        self.activation = nn.ReLU()
+        self.dropout = nn.Dropout()
+        self.norm = nn.LayerNorm(embed_size)
+        self.linear_out2 = nn.Linear(embed_size, vocab_size)
     
     def forward(self, images, captions, non_pad_pos):
         """ 
-        Args: http
+        Args:
 
         Return:
             torch.Tensor with size (batch_size, max_len, vocab_size)
@@ -33,11 +43,11 @@ class CaptioningModel(nn.Module):
         """
         # images: (batch_size, 3, H, W) -> default HxW = 224x224 
         # captions: (batch_size, max_len) -> default max_len is 300, caption[1] is vocabulary index
+
         with torch.no_grad():
-            # Extract feature from EfficientNet
-            features = self.efficientnet.extract_features(images)
+            features = self.efficientnet.extract_features(images) # Extract feature from EfficientNet
             # features: (batch_size, 2560, H', W') -> H'xW' = 7x7 in case of 224x224
-        
+
         features = features.view(features.size(0), features.size(1), -1) # features: (batch_size, 2560, 49)
         features = features.transpose(1, 2) # features: (batch_size, 49, 2560)
         features = self.pixel_embed(features) # features: (batch_size, 50, 2560)
@@ -46,12 +56,18 @@ class CaptioningModel(nn.Module):
         embedding = self.text_embed(captions) # embedding: (batch_size, max_len, d_model)
 
         out = self.transformer(src=features, tgt=embedding)
-        # nn.Trasformer
+        # <nn.Trasformer>
         # src=features: (batch_size, 50, 512) -> N=batch_size, S=50=Source Seq Length, E=d_model=feature number
         # tgt=embedding: (batch_size, 300, 512) -> N=batch_size, T=max_len=Target Seq Length, E=d_model=feature number
         # out: (batch_size, 300, 512) -> N, T, E
+
+        # nn.TransformerDecoder Requires (sequence_length, batch_size, d_model)
+        # out = self.transformer_decoder(tgt=embedding.transpose(0, 1), memory=features.transpose(0, 1))
+
         out = out[non_pad_pos] # delete padding part
-        out = self.linear_out(out) # out: (length of all batch, vocab_size)
+
+        out = self.norm(self.dropout(self.activation(self.linear_out(out)))) # out: (length of all batch, embed_size)
+        out = self.linear_out2(out) # out: (length of all batch, vocab_size)
 
         return out
 
@@ -84,16 +100,21 @@ class TextEmbedding(nn.Module):
         
         self.embed = nn.Embedding(vocab_size, embed_size, padding_idx)
         self.linear = nn.Linear(embed_size, d_model)
+        self.activation = nn.ReLU()
+        self.dropout = nn.Dropout(p=0.1)
+        self.norm = nn.LayerNorm(d_model)
+
         self.pos_encoding = PositionalEncoding(d_model, max_seq_len=max_len)
 
     def forward(self, sentence):
         # sentence: (batch_size, max_len)
         embedding = self.embed(sentence) # embedding: (batch_size, max_len, embed_size)
-        embedding = self.linear(embedding) # embedding: (batch_size, max_len, d_model)
+        embedding = self.dropout(self.activation(self.linear(embedding))) # embedding: (batch_size, max_len, d_model)
 
         pos = self.pos_encoding(sentence) # pos: (max_len, d_model)
 
-        return embedding + pos
+        out = self.norm(embedding + pos)
+        return out
 
 class PositionalEncoding(nn.Module):
     """
